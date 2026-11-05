@@ -2,14 +2,15 @@
  * BTL IoT – Giám sát ánh sáng (LDR) + chuyển động (PIR) + điều khiển đèn (relay)
  * ESP32 → Firebase Realtime Database (REST API qua HTTPS)
  *
- * Board: DOIT ESP32 DEVKIT V1 (ESP32-WROOM-32)
+ * Board: LuatOS CORE-ESP32-C3 (chip ESP32-C3)
  * Đấu nối:
  *   LDR (LM393):  VCC→3.3V, GND→GND, AO→GPIO0  (DO không dùng)
  *   PIR HW-416A:  VCC→5V,   GND→GND, OUT→GPIO3
  *   Relay CW-025: DC+→5V,   DC-→GND, IN→GPIO2, jumper ở H (kích mức cao)
  *                 COM/NO nối mạch LED, nên thêm điện trở 220Ω nối tiếp LED
  *
- * Arduino IDE: Board "DOIT ESP32 DEVKIT V1".
+ * Arduino IDE: Board "ESP32C3 Dev Module", Flash Mode "DIO",
+ *              USB CDC On Boot "Enabled" (để xem Serial Monitor qua cổng USB-C).
  * Không cần thư viện ngoài.
  */
 
@@ -28,11 +29,11 @@ const char* DEVICE_ID     = "esp32_01";
 // ===================================================================
 
 // Chân kết nối
-const int PIN_LDR_AO = 0;
+const int PIN_LDR_AO = 0;      // ADC1_CH0 của ESP32-C3
 const int PIN_LDR_DO = -1;     // -1 = không nối chân DO
 const int PIN_PIR    = 3;
 const int PIN_RELAY  = 2;
-const int PIN_STATUS = 12;
+const int PIN_STATUS = 12;     // LED D4 trên board CORE-ESP32-C3: sáng khi có WiFi
 
 // Relay kích mức cao (jumper ở H). Nếu chuyển jumper sang L thì đổi thành true.
 const bool RELAY_ACTIVE_LOW = false;
@@ -245,7 +246,7 @@ void sendHistory() {
 void setup() {
   Serial.begin(9600);
   delay(500);
-  Serial.println("\n[BOOT] Bat dau khoi dong ESP32-WROOM");
+  Serial.println("\n[BOOT] Bat dau khoi dong ESP32-C3");
   pinMode(PIN_PIR, INPUT);
   if (PIN_LDR_DO >= 0) pinMode(PIN_LDR_DO, INPUT);
   pinMode(PIN_STATUS, OUTPUT);
