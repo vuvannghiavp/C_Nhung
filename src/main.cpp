@@ -3,10 +3,10 @@
  * ESP32 → Firebase Realtime Database (REST API qua HTTPS)
  *
  * Board: LuatOS CORE-ESP32-C3 (chip ESP32-C3)
- * Đấu nối:
- *   LDR (LM393):  VCC→3.3V, GND→GND, AO→GPIO0  (DO không dùng)
- *   PIR HW-416A:  VCC→5V,   GND→GND, OUT→GPIO3
- *   Relay CW-025: DC+→5V,   DC-→GND, IN→GPIO2, jumper ở H (kích mức cao)
+ * Đấu nối (giữ nguyên như mạch đang lắp):
+ *   LDR (LM393):  VCC→3.3V, GND→GND, AO→IO0   (DO không dùng)
+ *   PIR HW-416A:  VCC→5V,   GND→GND, OUT→IO3
+ *   Relay CW-025: DC+→5V,   DC-→GND, IN→IO2, jumper ở H (kích mức cao)
  *                 COM/NO nối mạch LED, nên thêm điện trở 220Ω nối tiếp LED
  *
  * Arduino IDE: Board "ESP32C3 Dev Module", Flash Mode "DIO",
@@ -75,24 +75,14 @@ String dbUrl(const String& path) {
 
 // method: "GET", "PUT", "POST", "PATCH". Trả về mã HTTP, body trả về qua tham số.
 int firebaseRequest(const char* method, const String& path, const String& payload, String& response) {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.printf("[Firebase] Bo qua %s %s: chua ket noi WiFi\n", method, path.c_str());
-    return -1;
-  }
+  if (WiFi.status() != WL_CONNECTED) return -1;
   HTTPClient http;
   http.setTimeout(4000);
-  if (!http.begin(secureClient, dbUrl(path))) {
-    Serial.printf("[Firebase] Khong khoi tao duoc request %s %s\n", method, path.c_str());
-    return -2;
-  }
+  if (!http.begin(secureClient, dbUrl(path))) return -2;
   http.addHeader("Content-Type", "application/json");
   int code = http.sendRequest(method, payload);
   response = (code > 0) ? http.getString() : "";
   http.end();
-  if (code < 0 || code >= 400) {
-    Serial.printf("[Firebase] Loi %s %s: HTTP %d, response=%s\n",
-                  method, path.c_str(), code, response.c_str());
-  }
   return code;
 }
 
@@ -115,11 +105,8 @@ String jsonValue(const String& json, const String& key) {
 
 // ------------------------------------------------------------------
 void connectWiFi() {
-  if (WiFi.status() == WL_CONNECTED) {
-    digitalWrite(PIN_STATUS, HIGH);
-    return;
-  }
-  Serial.printf("[WiFi] Dang ket noi toi \"%s\"", WIFI_SSID);
+  if (WiFi.status() == WL_CONNECTED) return;
+  Serial.printf("Dang ket noi WiFi \"%s\"", WIFI_SSID);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   unsigned long t0 = millis();
@@ -127,21 +114,15 @@ void connectWiFi() {
     delay(500); Serial.print(".");
   }
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\n[WiFi] Ket noi thanh cong, IP: %s\n",
-                  WiFi.localIP().toString().c_str());
+    Serial.printf("\nWiFi OK, IP: %s\n", WiFi.localIP().toString().c_str());
     digitalWrite(PIN_STATUS, HIGH);
   } else {
-    Serial.printf("\n[WiFi] Ket noi that bai, status=%d; se thu lai.\n",
-                  WiFi.status());
+    Serial.println("\nKhong ket noi duoc WiFi, se thu lai.");
     digitalWrite(PIN_STATUS, LOW);
   }
 }
 
 void setRelay(bool on) {
-  if (relayOn != on) {
-    Serial.printf("[Relay] %s -> %s\n",
-                  relayOn ? "ON" : "OFF", on ? "ON" : "OFF");
-  }
   relayOn = on;
   bool level = RELAY_ACTIVE_LOW ? !on : on;
   digitalWrite(PIN_RELAY, level ? HIGH : LOW);
@@ -151,11 +132,7 @@ void setRelay(bool on) {
 void samplePir() {
   int p = digitalRead(PIN_PIR);
   if (p == HIGH) { lastMotionMs = millis(); motionAny = 1; }
-  if (p == HIGH && lastPir == LOW) {
-    eventsSinceHistory++;
-    Serial.printf("[PIR] Phat hien chuyen dong (su kien #%d)\n",
-                  eventsSinceHistory);
-  }
+  if (p == HIGH && lastPir == LOW) eventsSinceHistory++;
   lastPir = p;
   motionNow = p;
 }
@@ -169,8 +146,6 @@ void readLight() {
   lightPct = round(lightPct * 10) / 10.0;
   lightDigital = (PIN_LDR_DO >= 0) ? digitalRead(PIN_LDR_DO) : (lightPct < ctrlThreshold ? 1 : 0);
   lightSum += lightPct; lightCount++;
-  Serial.printf("[LDR] raw=%d, muc sang=%.1f%%, digital=%d, nguong=%d%%\n",
-                lightRaw, lightPct, lightDigital, ctrlThreshold);
 }
 
 void readControl() {
@@ -183,14 +158,10 @@ void readControl() {
     if (r.length()) ctrlRelay = (r == "true" || r == "1");
     String th = jsonValue(resp, "threshold");
     if (th.length()) ctrlThreshold = constrain(th.toInt(), 0, 100);
-    Serial.printf("[Control] mode=%s, relay=%s, threshold=%d%%\n",
-                  ctrlMode.c_str(), ctrlRelay ? "ON" : "OFF", ctrlThreshold);
   } else if (code == 200) {
     // Chưa có nút /control → tạo mặc định
     String tmp;
-    int putCode = firebaseRequest("PUT", "/control",
-                                  "{\"mode\":\"auto\",\"relay\":false,\"threshold\":68}", tmp);
-    Serial.printf("[Control] Chua co /control, tao mac dinh -> HTTP %d\n", putCode);
+    firebaseRequest("PUT", "/control", "{\"mode\":\"auto\",\"relay\":false,\"threshold\":68}", tmp);
   } else {
     Serial.printf("GET /control loi: %d\n", code);
   }
@@ -198,14 +169,10 @@ void readControl() {
 
 void decideRelay() {
   if (ctrlMode == "manual") {
-    Serial.printf("[Decision] Manual: relay=%s\n", ctrlRelay ? "ON" : "OFF");
     setRelay(ctrlRelay);
   } else {
     bool recentMotion = (millis() - lastMotionMs) < MOTION_HOLD && lastMotionMs != 0;
     bool dark = lightPct < ctrlThreshold;
-    Serial.printf("[Decision] Auto: motion_recent=%s, dark=%s -> relay=%s\n",
-                  recentMotion ? "yes" : "no", dark ? "yes" : "no",
-                  (recentMotion && dark) ? "ON" : "OFF");
     setRelay(recentMotion && dark);
   }
 }
@@ -244,9 +211,7 @@ void sendHistory() {
 
 // ------------------------------------------------------------------
 void setup() {
-  Serial.begin(9600);
-  delay(500);
-  Serial.println("\n[BOOT] Bat dau khoi dong ESP32-C3");
+  Serial.begin(115200);
   pinMode(PIN_PIR, INPUT);
   if (PIN_LDR_DO >= 0) pinMode(PIN_LDR_DO, INPUT);
   pinMode(PIN_STATUS, OUTPUT);
@@ -257,7 +222,7 @@ void setup() {
 
   secureClient.setInsecure();   // bỏ kiểm tra chứng chỉ cho đơn giản (đủ cho bài tập)
   connectWiFi();
-  Serial.println("[BOOT] Hoan tat cau hinh. PIR can khoang 30-60 giay de khoi dong.");
+  Serial.println("Cho PIR khoi dong khoang 30-60 giay...");
 }
 
 void loop() {
@@ -265,7 +230,6 @@ void loop() {
 
   if (millis() - lastCycle >= CYCLE_MS) {
     lastCycle = millis();
-    Serial.println("[CYCLE] Bat dau chu ky doc cam bien/cap nhat Firebase");
     connectWiFi();
     readLight();
     readControl();
